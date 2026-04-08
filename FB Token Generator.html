@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meta Long-Lived Page Token Generator</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f0f2f5;
+            color: #1c1e21;
+            padding: 40px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .card {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1, h2 { color: #1877f2; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; font-weight: bold; margin-bottom: 5px; }
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #1877f2;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover { background-color: #166fe5; }
+        .page-card {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            padding: 15px;
+            margin-top: 15px;
+            border-radius: 6px;
+        }
+        .token-box {
+            background: #282c34;
+            color: #abb2bf;
+            padding: 10px;
+            border-radius: 4px;
+            word-break: break-all;
+            font-family: monospace;
+            margin-top: 10px;
+        }
+        .error { color: #dc3545; font-weight: bold; margin-top: 10px; }
+        .success { color: #28a745; font-weight: bold; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h1>Meta Token Generator</h1>
+        <p>This local tool generates long-lived page access tokens for Instagram and Facebook performance reading.</p>
+        
+        <div class="form-group">
+            <label for="appId">App ID (Client ID)</label>
+            <input type="text" id="appId" placeholder="e.g., 123456789012345">
+        </div>
+        
+        <div class="form-group">
+            <label for="appSecret">App Secret (Client Secret)</label>
+            <input type="text" id="appSecret" placeholder="Paste your App Secret here">
+        </div>
+
+        <button onclick="startLoginFlow()">Login & Get Tokens</button>
+        <div id="statusMessage"></div>
+    </div>
+
+    <div id="resultsContainer" class="card" style="display:none;">
+        <h2>Your Long-Lived Page Tokens</h2>
+        <p>Save these securely. They are valid indefinitely (unless revoked by the user or if the password changes).</p>
+        <div id="pagesList"></div>
+    </div>
+
+    <script async defer crossorigin="anonymous" src="https://connect.facebook.net/en_US/sdk.js"></script>
+
+    <script>
+        const API_VERSION = 'v19.0';
+        
+        // 1. Initialize Facebook SDK and trigger Login
+        function startLoginFlow() {
+            const appId = document.getElementById('appId').value.trim();
+            const appSecret = document.getElementById('appSecret').value.trim();
+            const statusDiv = document.getElementById('statusMessage');
+
+            if (!appId || !appSecret) {
+                statusDiv.innerHTML = '<span class="error">Error: Please enter both App ID and App Secret.</span>';
+                return;
+            }
+
+            statusDiv.innerHTML = '<span style="color:#666;">Initializing Login...</span>';
+
+            // Initialize the SDK
+            FB.init({
+                appId      : appId,
+                cookie     : true,
+                xfbml      : true,
+                version    : API_VERSION
+            });
+
+            // Requested Scopes for FB & IG Insights
+            const permissions = [
+                'read_insights',
+                'pages_show_list',
+                'business_management',
+                'instagram_basic',
+                'instagram_manage_insights',
+                'pages_read_engagement',
+                'pages_manage_metadata',
+                'pages_manage_posts'
+            ].join(',');
+
+            // Trigger Login
+            FB.login(function(response) {
+                if (response.authResponse) {
+                    statusDiv.innerHTML = '<span style="color:#666;">Login successful. Exchanging for long-lived token...</span>';
+                    const shortLivedToken = response.authResponse.accessToken;
+                    
+                    // Proceed to exchange token
+                    exchangeForLongLivedToken(appId, appSecret, shortLivedToken);
+                } else {
+                    statusDiv.innerHTML = '<span class="error">User cancelled login or did not fully authorize.</span>';
+                }
+            }, { scope: permissions });
+        }
+
+        // 2. Exchange Short-Lived User Token for Long-Lived User Token
+        async function exchangeForLongLivedToken(appId, appSecret, shortLivedToken) {
+            const statusDiv = document.getElementById('statusMessage');
+            const url = `https://graph.facebook.com/${API_VERSION}/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${shortLivedToken}`;
+
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+
+                if (data.access_token) {
+                    statusDiv.innerHTML = '<span style="color:#666;">Got long-lived user token. Fetching Pages...</span>';
+                    fetchPagesAndTokens(data.access_token);
+                } else {
+                    statusDiv.innerHTML = `<span class="error">Error exchanging token: ${data.error?.message || JSON.stringify(data)}</span>`;
+                }
+            } catch (error) {
+                statusDiv.innerHTML = `<span class="error">Network error: ${error.message}</span>`;
+            }
+        }
+
+        // 3. Fetch Pages and their Long-Lived Page Tokens
+        async function fetchPagesAndTokens(longLivedUserToken) {
+            const statusDiv = document.getElementById('statusMessage');
+            const resultsContainer = document.getElementById('resultsContainer');
+            const pagesList = document.getElementById('pagesList');
+            
+            // Fetch accounts (Pages) the user manages
+            const url = `https://graph.facebook.com/${API_VERSION}/me/accounts?access_token=${longLivedUserToken}`;
+
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+
+                if (data.data) {
+                    statusDiv.innerHTML = '<span class="success">Success! Tokens retrieved.</span>';
+                    resultsContainer.style.display = 'block';
+                    pagesList.innerHTML = '';
+
+                    if (data.data.length === 0) {
+                        pagesList.innerHTML = '<p>No pages found for this user.</p>';
+                        return;
+                    }
+
+                    // Render each page token
+                    data.data.forEach(page => {
+                        const pageCard = document.createElement('div');
+                        pageCard.className = 'page-card';
+                        pageCard.innerHTML = `
+                            <strong>${page.name}</strong> (Page ID: ${page.id})
+                            <div class="token-box">${page.access_token}</div>
+                        `;
+                        pagesList.appendChild(pageCard);
+                    });
+                } else {
+                    statusDiv.innerHTML = `<span class="error">Error fetching pages: ${data.error?.message || JSON.stringify(data)}</span>`;
+                }
+            } catch (error) {
+                statusDiv.innerHTML = `<span class="error">Network error: ${error.message}</span>`;
+            }
+        }
+    </script>
+</body>
+</html>
