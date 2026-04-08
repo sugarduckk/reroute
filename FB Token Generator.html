@@ -22,13 +22,22 @@
         }
         h1, h2 { color: #1877f2; }
         .form-group { margin-bottom: 15px; }
-        label { display: block; font-weight: bold; margin-bottom: 5px; }
-        input[type="text"] {
+        label { display: block; font-weight: bold; margin-bottom: 5px; color: #444; }
+        input[type="text"], textarea {
             width: 100%;
             padding: 10px;
             border: 1px solid #ddd;
             border-radius: 4px;
             box-sizing: border-box;
+            font-family: monospace;
+        }
+        input[readonly], textarea[readonly] {
+            background-color: #f8f9fa;
+            cursor: pointer;
+        }
+        input[readonly]:focus, textarea[readonly]:focus {
+            outline: 2px solid #1877f2;
+            background-color: #fff;
         }
         button {
             background-color: #1877f2;
@@ -42,20 +51,19 @@
         }
         button:hover { background-color: #166fe5; }
         .page-card {
-            background: #f8f9fa;
-            border: 1px solid #e9ecef;
-            padding: 15px;
+            background: #fff;
+            border: 2px solid #e9ecef;
+            padding: 20px;
             margin-top: 15px;
-            border-radius: 6px;
+            border-radius: 8px;
         }
-        .token-box {
-            background: #282c34;
-            color: #abb2bf;
-            padding: 10px;
-            border-radius: 4px;
-            word-break: break-all;
-            font-family: monospace;
-            margin-top: 10px;
+        .page-name {
+            font-size: 18px;
+            font-weight: bold;
+            color: #1c1e21;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
         }
         .error { color: #dc3545; font-weight: bold; margin-top: 10px; }
         .success { color: #28a745; font-weight: bold; margin-top: 10px; }
@@ -82,8 +90,8 @@
     </div>
 
     <div id="resultsContainer" class="card" style="display:none;">
-        <h2>Your Long-Lived Page Tokens</h2>
-        <p>Save these securely. They are valid indefinitely (unless revoked by the user or if the password changes).</p>
+        <h2>Your Connected Pages</h2>
+        <p>Click inside any text box to automatically highlight the text for easy copying.</p>
         <div id="pagesList"></div>
     </div>
 
@@ -105,7 +113,6 @@
 
             statusDiv.innerHTML = '<span style="color:#666;">Initializing Login...</span>';
 
-            // Initialize the SDK
             FB.init({
                 appId      : appId,
                 cookie     : true,
@@ -113,7 +120,6 @@
                 version    : API_VERSION
             });
 
-            // Requested Scopes for FB & IG Insights
             const permissions = [
                 'read_insights',
                 'pages_show_list',
@@ -125,14 +131,10 @@
                 'pages_manage_posts'
             ].join(',');
 
-            // Trigger Login
             FB.login(function(response) {
                 if (response.authResponse) {
                     statusDiv.innerHTML = '<span style="color:#666;">Login successful. Exchanging for long-lived token...</span>';
-                    const shortLivedToken = response.authResponse.accessToken;
-                    
-                    // Proceed to exchange token
-                    exchangeForLongLivedToken(appId, appSecret, shortLivedToken);
+                    exchangeForLongLivedToken(appId, appSecret, response.authResponse.accessToken);
                 } else {
                     statusDiv.innerHTML = '<span class="error">User cancelled login or did not fully authorize.</span>';
                 }
@@ -152,20 +154,19 @@
                     statusDiv.innerHTML = '<span style="color:#666;">Got long-lived user token. Fetching Pages...</span>';
                     fetchPagesAndTokens(data.access_token);
                 } else {
-                    statusDiv.innerHTML = `<span class="error">Error exchanging token: ${data.error?.message || JSON.stringify(data)}</span>`;
+                    statusDiv.innerHTML = `<span class="error">Error: ${data.error?.message || JSON.stringify(data)}</span>`;
                 }
             } catch (error) {
                 statusDiv.innerHTML = `<span class="error">Network error: ${error.message}</span>`;
             }
         }
 
-        // 3. Fetch Pages and their Long-Lived Page Tokens
+        // 3. Fetch Pages and output ID and Token clearly
         async function fetchPagesAndTokens(longLivedUserToken) {
             const statusDiv = document.getElementById('statusMessage');
             const resultsContainer = document.getElementById('resultsContainer');
             const pagesList = document.getElementById('pagesList');
             
-            // Fetch accounts (Pages) the user manages
             const url = `https://graph.facebook.com/${API_VERSION}/me/accounts?access_token=${longLivedUserToken}`;
 
             try {
@@ -182,13 +183,22 @@
                         return;
                     }
 
-                    // Render each page token
+                    // Render each page with clear ID and Token inputs
                     data.data.forEach(page => {
                         const pageCard = document.createElement('div');
                         pageCard.className = 'page-card';
                         pageCard.innerHTML = `
-                            <strong>${page.name}</strong> (Page ID: ${page.id})
-                            <div class="token-box">${page.access_token}</div>
+                            <div class="page-name">📄 ${page.name}</div>
+                            
+                            <div class="form-group">
+                                <label>Page ID:</label>
+                                <input type="text" value="${page.id}" readonly onclick="this.select()" title="Click to select">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Long-Lived Page Access Token:</label>
+                                <textarea readonly rows="3" onclick="this.select()" title="Click to select">${page.access_token}</textarea>
+                            </div>
                         `;
                         pagesList.appendChild(pageCard);
                     });
