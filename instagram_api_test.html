@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Instagram Performance Fetcher</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f0f2f5;
+            color: #1c1e21;
+            padding: 40px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        .card {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1, h2, h3 { color: #E1306C; /* Instagram brand color */ margin-top: 0; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; font-weight: bold; margin-bottom: 5px; }
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-family: monospace;
+        }
+        button {
+            background-color: #E1306C;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover { background-color: #C13584; }
+        
+        .status { margin-top: 15px; font-weight: bold; }
+        .error { color: #dc3545; }
+        .success { color: #28a745; }
+        .info { color: #17a2b8; }
+
+        /* Grid for Posts */
+        .post-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .post-card {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .post-image {
+            width: 100%;
+            height: 200px;
+            object-fit: cover;
+            background-color: #ddd;
+        }
+        .post-content {
+            padding: 15px;
+            flex-grow: 1;
+        }
+        .post-caption {
+            font-size: 14px;
+            color: #444;
+            margin-bottom: 15px;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .metrics {
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            color: #1c1e21;
+            background: #e9ecef;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .metric-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h1>Instagram Insights Viewer</h1>
+        <p>Use your Facebook Page ID and Page Access Token to fetch connected Instagram account data.</p>
+        
+        <div class="form-group">
+            <label for="pageId">Facebook Page ID</label>
+            <input type="text" id="pageId" placeholder="e.g., 101234567890123">
+        </div>
+        
+        <div class="form-group">
+            <label for="pageToken">Long-Lived Page Access Token</label>
+            <input type="text" id="pageToken" placeholder="EAA... paste your long-lived token here">
+        </div>
+
+        <button onclick="fetchInstagramData()">Fetch Instagram Data</button>
+        <div id="statusMessage" class="status"></div>
+    </div>
+
+    <div id="resultsContainer" class="card" style="display:none;">
+        <h2>Connection Details</h2>
+        <p><strong>Instagram Business Account ID:</strong> <span id="igAccountId" style="font-family: monospace; color: #E1306C;"></span></p>
+        
+        <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+        
+        <h3>Recent Posts Performance</h3>
+        <div id="postGrid" class="post-grid"></div>
+    </div>
+
+    <script>
+        const API_VERSION = 'v19.0';
+
+        async function fetchInstagramData() {
+            const pageId = document.getElementById('pageId').value.trim();
+            const token = document.getElementById('pageToken').value.trim();
+            const statusDiv = document.getElementById('statusMessage');
+            const resultsContainer = document.getElementById('resultsContainer');
+            
+            if (!pageId || !token) {
+                statusDiv.innerHTML = '<span class="error">Please enter both Page ID and Page Token.</span>';
+                return;
+            }
+
+            statusDiv.innerHTML = '<span class="info">Fetching Instagram Business Account ID...</span>';
+            resultsContainer.style.display = 'none';
+
+            try {
+                // Step 1: Get the connected Instagram Business Account ID
+                const igAccountUrl = `https://graph.facebook.com/${API_VERSION}/${pageId}?fields=instagram_business_account&access_token=${token}`;
+                const igResponse = await fetch(igAccountUrl);
+                const igData = await igResponse.json();
+
+                if (igData.error) throw new Error(igData.error.message);
+
+                if (!igData.instagram_business_account) {
+                    statusDiv.innerHTML = '<span class="error">No Instagram Business Account is linked to this Facebook Page. Check your Meta Business Suite settings.</span>';
+                    return;
+                }
+
+                const igAccountId = igData.instagram_business_account.id;
+                document.getElementById('igAccountId').textContent = igAccountId;
+                
+                statusDiv.innerHTML = '<span class="info">IG Account found! Fetching recent posts...</span>';
+
+                // Step 2: Fetch Media (Posts) and Basic Performance Metrics
+                // We ask for like_count and comments_count directly from the media node
+                const mediaUrl = `https://graph.facebook.com/${API_VERSION}/${igAccountId}/media?fields=id,caption,media_type,media_url,thumbnail_url,permalink,like_count,comments_count,timestamp&limit=6&access_token=${token}`;
+                
+                const mediaResponse = await fetch(mediaUrl);
+                const mediaData = await mediaResponse.json();
+
+                if (mediaData.error) throw new Error(mediaData.error.message);
+
+                renderPosts(mediaData.data);
+                statusDiv.innerHTML = '<span class="success">Data successfully retrieved!</span>';
+                resultsContainer.style.display = 'block';
+
+            } catch (error) {
+                statusDiv.innerHTML = `<span class="error">API Error: ${error.message}</span>`;
+            }
+        }
+
+        function renderPosts(posts) {
+            const postGrid = document.getElementById('postGrid');
+            postGrid.innerHTML = '';
+
+            if (!posts || posts.length === 0) {
+                postGrid.innerHTML = '<p>No posts found on this Instagram account.</p>';
+                return;
+            }
+
+            posts.forEach(post => {
+                // Determine which image to show (Videos use thumbnail_url, Images use media_url)
+                const imageUrl = post.media_type === 'VIDEO' ? post.thumbnail_url : post.media_url;
+                const caption = post.caption || 'No caption';
+                
+                const card = document.createElement('div');
+                card.className = 'post-card';
+                card.innerHTML = `
+                    <img src="${imageUrl}" alt="Post Image" class="post-image" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiNlZWVlZWUiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1zaXplPSIxNHB4IiBmaWxsPSIjOTk5OTk5IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+SW1hZ2U8L3RleHQ+PC9zdmc+'">
+                    <div class="post-content">
+                        <div style="font-size:12px; color:#666; margin-bottom:5px;">
+                            ${new Date(post.timestamp).toLocaleDateString()} &bull; ${post.media_type}
+                        </div>
+                        <div class="post-caption">${caption}</div>
+                        <div class="metrics">
+                            <div class="metric-item">
+                                <span>❤️</span> ${post.like_count || 0}
+                            </div>
+                            <div class="metric-item">
+                                <span>💬</span> ${post.comments_count || 0}
+                            </div>
+                        </div>
+                        <div style="margin-top:15px; text-align:center;">
+                            <a href="${post.permalink}" target="_blank" style="color:#E1306C; text-decoration:none; font-size:14px; font-weight:bold;">View on Instagram ↗</a>
+                        </div>
+                    </div>
+                `;
+                postGrid.appendChild(card);
+            });
+        }
+    </script>
+</body>
+</html>
